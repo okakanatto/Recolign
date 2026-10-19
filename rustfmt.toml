@@ -1,0 +1,3 @@
+# One formatting for all Rust code; `cargo fmt` applies it and CI checks it.
+max_width = 120
+use_small_heuristics = "Max"

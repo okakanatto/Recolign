@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Recolign: records of two files, matched row by row across the middle; one record differs. -->
+  <defs>
+    <linearGradient id="plate" x1="0.05" y1="0" x2="0.95" y2="1">
+      <stop offset="0" stop-color="#22C1C3"/>
+      <stop offset="0.5" stop-color="#2F6BEA"/>
+      <stop offset="1" stop-color="#3B2FB0"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.2" cy="0.06" r="0.8">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.26"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFD36E"/>
+      <stop offset="1" stop-color="#FF7A59"/>
+    </linearGradient>
+    <filter id="lift" x="-20%" y="-40%" width="140%" height="200%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3.5" flood-color="#10154A" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <rect x="12" y="12" width="232" height="232" rx="56" fill="url(#plate)"/>
+  <rect x="12" y="12" width="232" height="232" rx="56" fill="url(#glow)"/>
+  <rect x="12.5" y="12.5" width="231" height="231" rx="55.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.2"/>
+  <g filter="url(#lift)">
+  <g fill="#FFFFFF" fill-opacity="0.42">
+    <rect x="112" y="69" width="32" height="6" rx="3"/>
+    <rect x="112" y="105" width="32" height="6" rx="3"/>
+    <rect x="112" y="177" width="32" height="6" rx="3"/>
+  </g>
+  <rect x="112" y="141" width="32" height="6" rx="3" fill="url(#accent)"/>
+  <g fill="#FFFFFF">
+    <rect x="44" y="62" width="72" height="20" rx="10"/>
+    <rect x="60" y="98" width="56" height="20" rx="10" fill-opacity="0.74"/>
+    <rect x="52" y="134" width="64" height="20" rx="10"/>
+    <rect x="72" y="170" width="44" height="20" rx="10" fill-opacity="0.74"/>
+    <rect x="140" y="62" width="72" height="20" rx="10"/>
+    <rect x="140" y="98" width="56" height="20" rx="10" fill-opacity="0.74"/>
+    <rect x="140" y="170" width="44" height="20" rx="10" fill-opacity="0.74"/>
+  </g>
+  <rect x="140" y="134" width="80" height="20" rx="10" fill="url(#accent)"/>
+  </g>
+</svg>

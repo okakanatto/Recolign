@@ -1,0 +1,157 @@
+name: windows
+
+# Builds and tests on a GitHub-hosted Windows runner: the engine (with the
+# independent oracle), the screens (UI tests and random operations), and the
+# portable desktop exe, checked for network connections.
+
+on:
+  push:
+    branches: ["claude/**", "main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch replaces a run still in progress.
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          rustup default stable
+          rustc --version
+          python --version
+      - uses: Swatinem/rust-cache@v2
+      - name: Test
+        run: cargo test --release
+      - name: Build
+        run: cargo build --release -p cdr-cli
+      - name: Independent oracle (CSV and the other formats)
+        run: python tools/fuzz_oracle.py --cdr target/release/cdr.exe --cases 400 --seed 1
+
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Toolchain
+        run: |
+          rustup default stable
+          rustc --version
+          node --version
+      - uses: Swatinem/rust-cache@v2
+      - name: Install
+        working-directory: app
+        run: npm ci
+      - name: License texts of the bundled software
+        env:
+          PYTHONUTF8: "1"
+        run: python tools/licenses.py
+      - name: Build the portable exe
+        working-directory: app
+        run: npx tauri build --no-bundle
+      - name: Lints of the desktop shell
+        run: |
+          rustup component add clippy
+          cargo clippy -p cdr-desktop --release -- -D warnings
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item target/release/cdr-desktop.exe out/Recolign.exe
+          Copy-Item app/public/third-party-licenses.txt out/THIRD-PARTY-LICENSES.txt
+          Copy-Item docs/manual.md out/MANUAL.md
+          Copy-Item LICENSE out/LICENSE.txt
+          Get-Item out/Recolign.exe | Format-List Name, Length
+          (Get-FileHash out/Recolign.exe -Algorithm SHA256).Hash | Out-File -Encoding ascii out/Recolign.exe.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Recolign-windows-x64
+          path: |
+            out/Recolign.exe
+            out/Recolign.exe.sha256
+            out/THIRD-PARTY-LICENSES.txt
+            out/MANUAL.md
+            out/LICENSE.txt
+      - name: No network connections from the app (AC-16, first screen)
+        shell: pwsh
+        run: ./tools/net_check.ps1 -Exe out/Recolign.exe
+      - name: No network connections while comparing (AC-16)
+        shell: pwsh
+        run: ./tools/net_check.ps1 -Exe out/Recolign.exe -AppArgs "$PWD\samples\before.csv","$PWD\samples\after.csv","--key","社員番号" -ExpectRecent after.csv
+      - name: No network connections on a first start (AC-16)
+        # WebView2 fetches some things only once per profile: start twice
+        # more from an empty WebView2 profile.
+        shell: pwsh
+        run: |
+          $webviewData = Join-Path $env:LOCALAPPDATA 'io.github.okakanatto.recolign\EBWebView'
+          foreach ($i in 1, 2) {
+            Remove-Item -Recurse -Force $webviewData -ErrorAction SilentlyContinue
+            ./tools/net_check.ps1 -Exe out/Recolign.exe
+          }
+
+  ui:
+    # The app's screens in Chromium (the engine of WebView2) against the
+    # development harness, plus screenshots at 100/125/150 % scaling.
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Toolchain
+        run: rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          cargo build --release -p cdr-harness
+          cd app
+          npm ci
+          cd ..
+          python tools/licenses.py
+          cd app
+          npm run build
+      - name: Playwright
+        run: |
+          python -m pip install playwright==1.55.0 openpyxl==3.1.5
+          python -m playwright install chromium
+      - name: UI tests
+        run: python tools/ui_test.py --harness target/release/cdr-harness.exe --screens ui-screens
+      - name: Setup screen regression cases (failures found by random operations)
+        env:
+          PYTHONUTF8: "1"
+        run: python tools/ui_fuzz.py --harness target/release/cdr-harness.exe --replay tools/ui_fuzz_cases
+      - name: Random operations on the setup screen
+        env:
+          PYTHONUTF8: "1"
+        run: python tools/ui_fuzz.py --harness target/release/cdr-harness.exe --sequences 30 --seed 1 --no-shrink
+      - name: Random operations on the comparison screen
+        env:
+          PYTHONUTF8: "1"
+        run: python tools/ui_fuzz_compare.py --harness target/release/cdr-harness.exe --sequences 20 --seed 1 --no-shrink
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screens-windows
+          path: ui-screens

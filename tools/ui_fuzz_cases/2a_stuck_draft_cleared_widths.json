@@ -1,0 +1,43 @@
+{
+ "steps": [
+  {
+   "op": "pick",
+   "side": "left",
+   "file": "fixed_sjis.dat",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "del",
+   "side": "left",
+   "how": "mouse",
+   "value": "fixed",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "widths",
+   "side": "left",
+   "text": "4, 10, 8",
+   "then": "Enter",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "widths",
+   "side": "left",
+   "text": "",
+   "then": "Enter",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "widths",
+   "side": "left",
+   "text": "4, 10, 8",
+   "then": "Enter",
+   "wait": "idle",
+   "delay": 0
+  }
+ ]
+}

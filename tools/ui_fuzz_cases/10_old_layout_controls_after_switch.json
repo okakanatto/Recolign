@@ -1,0 +1,58 @@
+{
+ "seed": 21073,
+ "fast": false,
+ "failure": {
+  "code": "hint:unreal",
+  "severity": "medium",
+  "text": "the hint '右のファイルの列の幅を直してください。' does not match the screen (左 draft=None error=False, 右 draft=None error=True, keys=[])",
+  "step": 6
+ },
+ "steps": [
+  {
+   "op": "pick",
+   "side": "right",
+   "file": "pipe_sjis.txt",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "del",
+   "side": "right",
+   "how": "mouse",
+   "value": "fixed",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "widths",
+   "side": "right",
+   "text": "99999999999",
+   "then": "Enter",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "pick",
+   "side": "left",
+   "file": "colon.txt",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "del",
+   "side": "right",
+   "how": "mouse",
+   "value": "9",
+   "wait": "none",
+   "delay": 100
+  },
+  {
+   "op": "ftrim",
+   "side": "right",
+   "how": "space",
+   "wait": "idle",
+   "delay": 0
+  }
+ ],
+ "reproduced": true
+}

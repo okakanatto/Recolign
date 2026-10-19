@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["engine", "service", "cli", "harness", "app/src-tauri"]
+# The desktop app needs the Windows (or WebKitGTK) webview to build; plain
+# `cargo build` / `cargo test` leave it out. CI builds it on Windows.
+default-members = ["engine", "service", "cli", "harness"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+publish = false
+version = "1.0.0"
+
+[profile.release]
+debug = 1
+codegen-units = 4
+lto = "thin"
+
+[profile.bench-release]
+inherits = "release"

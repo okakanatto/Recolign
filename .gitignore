@@ -1,0 +1,9 @@
+benchmark_*/
+target/
+node_modules/
+dist/
+*.duckdb
+*.duckdb.wal
+__pycache__/
+benchmark_data/
+app/public/third-party-licenses.txt

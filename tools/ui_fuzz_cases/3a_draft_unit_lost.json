@@ -1,0 +1,27 @@
+{
+ "steps": [
+  {
+   "op": "pick",
+   "side": "right",
+   "file": "pipe_sjis.txt",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "del",
+   "side": "right",
+   "how": "mouse",
+   "value": "fixed",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "unit",
+   "side": "right",
+   "how": "key",
+   "key": "ArrowDown",
+   "wait": "idle",
+   "delay": 0
+  }
+ ]
+}

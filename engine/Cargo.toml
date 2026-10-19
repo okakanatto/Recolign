@@ -1,0 +1,25 @@
+[package]
+name = "cdr-engine"
+description = "Recolign: strict loading of delimited and fixed-width text, key matching and range queries"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+ahash = "0.8.12"
+encoding_rs = "0.8.42"
+hashbrown = "0.17.1"
+memchr = "2.8.3"
+rayon = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+sha2 = "0.11.1"
+rust_xlsxwriter = { version = "0.100.0", features = ["constant_memory"] }
+
+[dev-dependencies]
+csv = "1.4.0"
+proptest = "1.12.0"
+serde_json = "1.0.154"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_Foundation"] }

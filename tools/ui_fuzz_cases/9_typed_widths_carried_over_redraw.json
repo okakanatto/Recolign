@@ -1,0 +1,66 @@
+{
+ "seed": 11059,
+ "fast": false,
+ "failure": {
+  "code": "post:other-card",
+  "severity": "high",
+  "text": "the 右 card changed: error None -> '列の幅を読み取れません。「4, 10, 8」のように、1から1,000,000までの数をカンマで区切って入力してください。', invalid None -> 'widths', headers ['番号,氏', '名,部署', ''] -> None  (step: 左: 前後の空白を除く toggled (click))",
+  "step": 7
+ },
+ "steps": [
+  {
+   "op": "pick",
+   "side": "left",
+   "file": "pipe_sjis.txt",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "del",
+   "side": "left",
+   "how": "mouse",
+   "value": "fixed",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "pick",
+   "side": "right",
+   "file": "csv_utf8.csv",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "del",
+   "side": "right",
+   "how": "mouse",
+   "value": "fixed",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "widths",
+   "side": "right",
+   "text": "4,10,8",
+   "then": "Enter",
+   "wait": "none",
+   "delay": 250
+  },
+  {
+   "op": "widths",
+   "side": "right",
+   "text": "99999999999",
+   "then": "none",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "ftrim",
+   "side": "left",
+   "how": "click",
+   "wait": "idle",
+   "delay": 0
+  }
+ ],
+ "reproduced": true
+}

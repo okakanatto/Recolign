@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "The main window: core events (file drops) only. Engine commands are the app's own commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -1,0 +1,110 @@
+name: release
+
+# Publishes a version: pushing a tag such as v1.0.0, or running this
+# workflow on main from the Actions page with the version (it then makes the
+# tag itself, on the commit it ran on), builds the portable exe from the
+# sources and the lockfiles (no build cache), checks it makes no network
+# connections, and puts it on a GitHub Release with its SHA-256, the license
+# texts and the manual. On a public repository the exe also gets a build
+# provenance attestation (`gh attestation verify`).
+#
+# Before publishing: the version in Cargo.toml, app/package.json and
+# app/src-tauri/tauri.conf.json, and docs/release-notes/v<version>.md.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to publish, e.g. 1.0.0 (from main)"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  APP_NAME: Recolign
+  EXE: Recolign.exe
+  TAG: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
+
+jobs:
+  release:
+    # Only in the public repository (the development one does not publish),
+    # and by hand only from main.
+    if: ${{ github.repository == 'okakanatto/Recolign' && (github.event_name == 'push' || github.ref == 'refs/heads/main') }}
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write # create the release
+      id-token: write # sign the provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Toolchain
+        run: |
+          rustup default stable
+          rustc --version
+          node --version
+      - name: The tag, the versions and the release notes agree
+        shell: pwsh
+        run: |
+          $tag = $env:TAG
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') { throw "'$tag' is not a version such as v1.0.0." }
+          $v = $tag.TrimStart('v')
+          $versions = @{
+            'app/src-tauri/tauri.conf.json' = (Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+            'app/package.json' = (Get-Content app/package.json -Raw | ConvertFrom-Json).version
+            'Cargo.toml' = ([regex]::Match((Get-Content Cargo.toml -Raw), '(?ms)^\[workspace\.package\].*?^version = "([^"]+)"')).Groups[1].Value
+          }
+          foreach ($f in $versions.Keys) {
+            if ($versions[$f] -ne $v) { throw "$f has version '$($versions[$f])', not $v (tag $tag)." }
+          }
+          if (-not (Test-Path "docs/release-notes/$tag.md")) { throw "docs/release-notes/$tag.md is missing." }
+      - name: Install
+        working-directory: app
+        run: npm ci
+      - name: License texts of the bundled software
+        env:
+          PYTHONUTF8: "1"
+        run: python tools/licenses.py
+      - name: Build the portable exe
+        working-directory: app
+        run: npx tauri build --no-bundle
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item target/release/cdr-desktop.exe "out/$env:EXE"
+          Copy-Item app/public/third-party-licenses.txt out/THIRD-PARTY-LICENSES.txt
+          Copy-Item docs/manual.md out/MANUAL.md
+          Copy-Item LICENSE out/LICENSE.txt
+          (Get-FileHash "out/$env:EXE" -Algorithm SHA256).Hash | Out-File -Encoding ascii "out/$env:EXE.sha256"
+          Get-ChildItem out | Format-Table Name, Length
+      - name: No network connections from the app (AC-16)
+        shell: pwsh
+        run: ./tools/net_check.ps1 -Exe "out/$env:EXE" -AppArgs "$PWD\samples\before.csv","$PWD\samples\after.csv","--key","社員番号" -ExpectRecent after.csv
+      - name: Build provenance
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: out/${{ env.EXE }}
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTESTED: ${{ !github.event.repository.private }}
+        run: |
+          $tag = $env:TAG
+          $notes = Get-Content "docs/release-notes/$tag.md" -Raw -Encoding utf8
+          if ($env:ATTESTED -eq 'true') {
+            $notes += "`n``gh attestation verify $env:EXE --repo ${{ github.repository }}`` で、そのことを確かめられます。`n"
+          }
+          Set-Content -Path notes.md -Value $notes -Encoding utf8
+          # A pushed tag must exist; by hand, the release makes the tag on the commit built.
+          $where = if ("${{ github.event_name }}" -eq 'push') { '--verify-tag' } else { "--target=${{ github.sha }}" }
+          gh release create $tag $where --title "$env:APP_NAME $tag" --notes-file notes.md `
+            "out/$env:EXE" "out/$env:EXE.sha256" out/LICENSE.txt out/THIRD-PARTY-LICENSES.txt out/MANUAL.md

@@ -1,0 +1,33 @@
+name: audit
+
+# Known vulnerabilities in the Rust crates (RustSec advisory database) and
+# in the npm packages built into the app. Also runs weekly, because new
+# advisories appear without any change here.
+
+on:
+  push:
+    branches: ["claude/**", "main"]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - name: Rust crates
+        run: cargo audit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: npm packages in the app
+        working-directory: app
+        run: npm audit --omit=dev

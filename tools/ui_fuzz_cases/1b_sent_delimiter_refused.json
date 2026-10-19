@@ -1,0 +1,51 @@
+{
+ "steps": [
+  {
+   "op": "pick",
+   "side": "left",
+   "file": "colon.txt",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "del",
+   "side": "left",
+   "how": "mouse",
+   "value": "other",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "one",
+   "side": "left",
+   "text": ":",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "pick",
+   "side": "right",
+   "file": "csv_utf8.csv",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "key",
+   "name": "番号",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "one",
+   "side": "left",
+   "text": "\"",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "go",
+   "wait": "idle",
+   "delay": 0
+  }
+ ]
+}

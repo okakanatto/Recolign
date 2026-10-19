@@ -1,0 +1,26 @@
+{
+ "steps": [
+  {
+   "op": "pick",
+   "side": "right",
+   "file": "csv_utf8.csv",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "del",
+   "side": "right",
+   "how": "mouse",
+   "value": "other",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "one",
+   "side": "right",
+   "text": ";",
+   "wait": "idle",
+   "delay": 0
+  }
+ ]
+}

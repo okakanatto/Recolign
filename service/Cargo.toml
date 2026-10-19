@@ -1,0 +1,15 @@
+[package]
+name = "cdr-service"
+description = "Recolign: application commands shared by the desktop app and the development harness"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+cdr-engine = { path = "../engine" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[dev-dependencies]
+encoding_rs = "0.8.42"

@@ -1,0 +1,149 @@
+{
+ "seed": 32008,
+ "fast": true,
+ "failure": {
+  "code": "hint:unreal",
+  "severity": "medium",
+  "text": "the hint '左のファイルの区切り文字を直してください。' does not match the screen (左 draft=None error=True, 右 draft=None error=False, keys=[])",
+  "step": 19
+ },
+ "steps": [
+  {
+   "op": "pick",
+   "side": "left",
+   "file": "extra.csv",
+   "wait": "none",
+   "delay": 0
+  },
+  {
+   "op": "del",
+   "side": "left",
+   "how": "mouse",
+   "value": "fixed",
+   "wait": "none",
+   "delay": 250
+  },
+  {
+   "op": "del",
+   "side": "left",
+   "how": "key",
+   "key": "ArrowUp",
+   "wait": "none",
+   "delay": 250
+  },
+  {
+   "op": "pick",
+   "side": "right",
+   "file": "fixed_sjis.dat",
+   "wait": "none",
+   "delay": 30
+  },
+  {
+   "op": "one",
+   "side": "left",
+   "text": "・",
+   "wait": "none",
+   "delay": 30
+  },
+  {
+   "op": "one",
+   "side": "left",
+   "text": "　",
+   "wait": "none",
+   "delay": 0
+  },
+  {
+   "op": "one",
+   "side": "left",
+   "text": " ",
+   "wait": "none",
+   "delay": 250
+  },
+  {
+   "op": "go",
+   "wait": "none",
+   "delay": 30
+  },
+  {
+   "op": "swap",
+   "wait": "none",
+   "delay": 30
+  },
+  {
+   "op": "enc",
+   "side": "left",
+   "how": "mouse",
+   "value": "utf8",
+   "wait": "none",
+   "delay": 0
+  },
+  {
+   "op": "enc",
+   "side": "left",
+   "how": "key",
+   "key": "ArrowDown",
+   "wait": "none",
+   "delay": 0
+  },
+  {
+   "op": "one",
+   "side": "right",
+   "text": ",",
+   "wait": "none",
+   "delay": 250
+  },
+  {
+   "op": "one",
+   "side": "right",
+   "text": "\"",
+   "wait": "none",
+   "delay": 100
+  },
+  {
+   "op": "del",
+   "side": "left",
+   "how": "mouse",
+   "value": "59",
+   "wait": "none",
+   "delay": 250
+  },
+  {
+   "op": "swap",
+   "wait": "none",
+   "delay": 100
+  },
+  {
+   "op": "go",
+   "wait": "none",
+   "delay": 30
+  },
+  {
+   "op": "del",
+   "side": "right",
+   "how": "mouse",
+   "value": "other",
+   "wait": "none",
+   "delay": 0
+  },
+  {
+   "op": "pick",
+   "side": "right",
+   "file": "csv_utf8.csv",
+   "wait": "none",
+   "delay": 100
+  },
+  {
+   "op": "pick",
+   "side": "right",
+   "file": "unicode.txt",
+   "wait": "none",
+   "delay": 0
+  },
+  {
+   "op": "ctrlenter",
+   "wait": "none",
+   "delay": 0
+  }
+ ],
+ "reproduced": true
+}

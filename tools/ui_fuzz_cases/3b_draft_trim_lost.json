@@ -1,0 +1,26 @@
+{
+ "steps": [
+  {
+   "op": "pick",
+   "side": "left",
+   "file": "fixed_utf8.dat",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "del",
+   "side": "left",
+   "how": "mouse",
+   "value": "fixed",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "ftrim",
+   "side": "left",
+   "how": "click",
+   "wait": "idle",
+   "delay": 0
+  }
+ ]
+}

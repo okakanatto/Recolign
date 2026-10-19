@@ -1,0 +1,48 @@
+name: checks
+
+# Fast checks that keep the code in one shape: formatting (rustfmt,
+# Prettier), Rust lints with warnings as errors, and the TypeScript types.
+# The desktop shell (cdr-desktop) builds only on Windows; its lints run in
+# the desktop job of windows.yml.
+
+on:
+  push:
+    branches: ["claude/**", "main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          rustup default stable
+          rustup component add rustfmt clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Rust formatting
+        run: cargo fmt --all --check
+      - name: Rust lints
+        run: cargo clippy -p cdr-engine -p cdr-service -p cdr-harness -p cdr-cli --all-targets -- -D warnings
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Install
+        working-directory: app
+        run: npm ci
+      - name: TypeScript formatting
+        working-directory: app
+        run: npm run format:check
+      - name: TypeScript types
+        working-directory: app
+        run: npm run check

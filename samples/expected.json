@@ -1,0 +1,27 @@
+{
+  "note": "All people and values are synthetic; headers are in Japanese. Row and column orders differ.",
+  "key_columns": [
+    "社員番号"
+  ],
+  "before_records": 64,
+  "after_records": 64,
+  "counts": {
+    "all": 67,
+    "changed": 12,
+    "added": 3,
+    "deleted": 3,
+    "same": 49
+  },
+  "largest_full_change_pattern": {
+    "columns": [
+      "部署"
+    ],
+    "before": [
+      "営業一課"
+    ],
+    "after": [
+      "営業企画課"
+    ],
+    "records": 5
+  }
+}

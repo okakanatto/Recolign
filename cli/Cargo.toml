@@ -1,0 +1,16 @@
+[package]
+name = "cdr-cli"
+description = "Recolign: command-line comparison, canonical export and measurements (G1)"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "cdr"
+path = "src/main.rs"
+
+[dependencies]
+cdr-engine = { path = "../engine" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"

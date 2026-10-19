@@ -1,0 +1,43 @@
+{
+ "seed": 11016,
+ "fast": false,
+ "failure": {
+  "code": "focus:lost",
+  "severity": "low",
+  "text": "the focus went to <body> after a keyboard operation on a card control  (step: 左: 1行目は列名 toggled (space))",
+  "step": 4
+ },
+ "steps": [
+  {
+   "op": "pick",
+   "side": "left",
+   "file": "pipe_sjis.txt",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "del",
+   "side": "left",
+   "how": "mouse",
+   "value": "fixed",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "widths",
+   "side": "left",
+   "text": "4.5",
+   "then": "none",
+   "wait": "idle",
+   "delay": 0
+  },
+  {
+   "op": "header",
+   "side": "left",
+   "how": "space",
+   "wait": "idle",
+   "delay": 0
+  }
+ ],
+ "reproduced": true
+}
