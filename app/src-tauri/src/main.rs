@@ -125,11 +125,23 @@ fn settings_files(app: &AppHandle) -> Vec<PathBuf> {
     v
 }
 
-/// What names files and columns (recent comparisons, columns left out of
-/// the change patterns) stays in the user's profile only, so a copy of the
-/// exe on a shared folder or a USB drive does not carry or mix one person's
-/// file and column names.
-const PRIVATE_KEYS: [&str; 2] = ["recent", "groupSkip"];
+/// Settings kept in the user's profile only (as JSON pointers), not in the
+/// preferences file next to the exe, which anyone who can write to that
+/// folder can change and every user of a shared copy shares:
+/// - what names files and columns (recent comparisons, columns left out of
+///   the change patterns), so a copy of the exe on a shared folder or a USB
+///   drive does not carry or mix one person's file and column names;
+/// - the settings that protect the data, so a shared copy cannot turn them
+///   off for the next person. The second value is the one that protects:
+///   from a preferences file, only that value is taken, except once from a
+///   profile of an earlier version (which saved them there).
+const PRIVATE_KEYS: [(&str, Option<bool>); 5] = [
+    ("/recent", None),
+    ("/groupSkip", None),
+    ("/keepHistory", Some(false)),
+    ("/clipboardExclude", Some(true)),
+    ("/exportOptions/protectFormulas", Some(true)),
+];
 
 fn history_file(app: &AppHandle) -> Option<PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join("history.json"))
@@ -139,20 +151,41 @@ fn read_json(p: &Path) -> Option<Value> {
     std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str(&t).ok())
 }
 
-/// The preferences, with the file and column names from the user's profile
-/// only: names in a preferences file (which anyone who can write to the
-/// exe's folder can change) are never used, so a planted recent comparison
-/// cannot lead to a file on another computer.
+/// Removes and returns the value at the JSON pointer `key`.
+fn take(v: &mut Value, key: &str) -> Option<Value> {
+    let (parent, name) = key.rsplit_once('/')?;
+    v.pointer_mut(parent)?.as_object_mut()?.remove(name)
+}
+
+/// Puts `value` at the JSON pointer `key`, adding the objects on the way.
+fn put(v: &mut Value, key: &str, value: Value) {
+    let mut names = key.split('/').skip(1).peekable();
+    let mut cur = v;
+    while let Some(name) = names.next() {
+        let Some(obj) = cur.as_object_mut() else { return };
+        if names.peek().is_none() {
+            obj.insert(name.to_string(), value);
+            return;
+        }
+        cur = obj.entry(name).or_insert_with(|| json!({}));
+    }
+}
+
+/// The preferences, with the private settings from the user's profile:
+/// names in a preferences file are never used, so a planted recent
+/// comparison cannot lead to a file on another computer, and a protecting
+/// setting turned off there stays on for someone new to this copy.
 #[tauri::command]
 fn load_settings(app: AppHandle) -> Option<Value> {
     let mut s = settings_files(&app).iter().find_map(|p| read_json(p)).unwrap_or_else(|| json!({}));
     let h = history_file(&app).and_then(|p| read_json(&p));
-    if let Some(obj) = s.as_object_mut() {
-        for k in PRIVATE_KEYS {
-            obj.remove(k);
-            if let Some(v) = h.as_ref().and_then(|h| h.get(k)) {
-                obj.insert(k.to_string(), v.clone());
-            }
+    // A profile of an earlier version has none of the protecting settings:
+    // its user had them in the preferences file, and keeps them as they were.
+    let earlier = h.as_ref().is_some_and(|h| PRIVATE_KEYS.iter().all(|(k, p)| p.is_none() || h.pointer(k).is_none()));
+    for (k, protects) in PRIVATE_KEYS {
+        let shared = take(&mut s, k).filter(|v| protects.is_some_and(|b| earlier || *v == Value::Bool(b)));
+        if let Some(v) = h.as_ref().and_then(|h| h.pointer(k)).cloned().or(shared) {
+            put(&mut s, k, v);
         }
     }
     Some(s)
@@ -161,19 +194,17 @@ fn load_settings(app: AppHandle) -> Option<Value> {
 #[tauri::command]
 fn save_settings(app: AppHandle, settings: Value) -> Result<(), String> {
     let mut prefs = settings;
-    let mut private = serde_json::Map::new();
-    if let Some(obj) = prefs.as_object_mut() {
-        for k in PRIVATE_KEYS {
-            if let Some(v) = obj.remove(k) {
-                private.insert(k.to_string(), v);
-            }
+    let mut private = json!({});
+    for (k, _) in PRIVATE_KEYS {
+        if let Some(v) = take(&mut prefs, k) {
+            put(&mut private, k, v);
         }
     }
     if let Some(path) = history_file(&app) {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).ok();
         }
-        let text = serde_json::to_string_pretty(&Value::Object(private)).map_err(|e| e.to_string())?;
+        let text = serde_json::to_string_pretty(&private).map_err(|e| e.to_string())?;
         std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
     }
     let text = serde_json::to_string_pretty(&prefs).map_err(|e| e.to_string())?;
@@ -216,6 +247,8 @@ fn set_zoom(window: WebviewWindow, factor: f64) -> Result<(), String> {
 }
 
 fn main() {
+    #[cfg(windows)]
+    load_system_libraries();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
@@ -270,6 +303,29 @@ fn main() {
             );
             show_startup_error(&msg);
             std::process::exit(1);
+        }
+    }
+}
+
+/// DLLs loaded by name while the app runs, which `/DEPENDENTLOADFLAG`
+/// (build.rs) does not cover: the standard library loads dbghelp.dll to
+/// write where a bug happened, and the window code loads uxtheme.dll. Loaded
+/// here from System32 first, the later loads by name use these, never a DLL
+/// of the same name next to the exe (in the Downloads folder, for example).
+#[cfg(windows)]
+fn load_system_libraries() {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn LoadLibraryExW(name: *const u16, file: *mut core::ffi::c_void, flags: u32) -> *mut core::ffi::c_void;
+    }
+    const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 = 0x800;
+    for name in ["dbghelp.dll", "uxtheme.dll"] {
+        let wide: Vec<u16> = std::ffi::OsStr::new(name).encode_wide().chain(Some(0)).collect();
+        // Kept loaded for the life of the process; a failure leaves the
+        // later load to fail the same way.
+        unsafe {
+            LoadLibraryExW(wide.as_ptr(), core::ptr::null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32);
         }
     }
 }

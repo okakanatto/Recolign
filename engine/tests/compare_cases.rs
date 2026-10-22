@@ -118,6 +118,22 @@ fn p11_duplicate_key_on_one_side_stops() {
 }
 
 #[test]
+fn a_long_duplicate_key_is_cut_in_the_report() {
+    let long = "鍵".repeat(5_000);
+    let e =
+        cmp_with(&format!("id,v\n{long},x\n{long},y\n"), "id,v\na,z\n", &["id"], &[], TrimRule::None).err().unwrap();
+    match &e {
+        CompareError::KeyValidation(r) => {
+            let key = &r.left.duplicate_groups[0].key[0];
+            assert_eq!(key.chars().count(), cdr_engine::view::DETAIL_KEY_CHARS + 1);
+            assert!(key.ends_with("鍵…"));
+        }
+        other => panic!("{other}"),
+    }
+    assert!(e.to_string().len() < 10_000);
+}
+
+#[test]
 fn p12_empty_key_stops() {
     let e = cmp_with("id,v\n,x\n", "id,v\na,z\n", &["id"], &[], TrimRule::None).err().unwrap();
     assert!(matches!(&e, CompareError::KeyValidation(r) if r.left.empty_total == 1));
@@ -680,11 +696,12 @@ fn formula_like_values_include_full_width_forms_and_leave_numbers() {
         "\u{FF20}x",
         "\u{FF0B}1+1",
         "\u{FF0D}x",
+        "\u{2212}HYPERLINK(\"x\")",
         "=",
     ] {
         assert!(formula_like(v), "{v:?}");
     }
-    for v in ["", "a=b", "-5", "+5", "-1,000.5", "\u{FF0D}\u{FF11}\u{FF10}", "-", "+", "\u{FF0D}", "x@y"] {
+    for v in ["", "a=b", "-5", "+5", "-1,000.5", "\u{FF0D}\u{FF11}\u{FF10}", "\u{2212}5", "-", "+", "\u{FF0D}", "x@y"] {
         assert!(!formula_like(v), "{v:?}");
     }
 }
@@ -739,6 +756,24 @@ fn export_csv_in_windows31j_and_unrepresentable_characters() {
 }
 
 #[test]
+fn export_csv_in_windows31j_writes_yen_overline_and_minus_at_their_jis_places() {
+    // As in 1.0.0: ¥, ‾ and − go to 0x5C, 0x7E and 0x817C (Windows reads
+    // \, ~ and －). A value that starts with − gets the formula guard,
+    // because in Shift_JIS it starts with the full-width －.
+    let c = cmp("id,v\n1,¥100\n2,a‾b\n3,−HYPERLINK\n", "id,v\n1,¥100\n2,a‾b\n3,−HYPERLINK\n");
+    let v = View::build(&c, None, Order::Aligned, Filter::default(), &CancelToken::new()).unwrap();
+    let s = slots(&c, Order::Aligned);
+    let mut req = export_req(CopySide::Left, ExportEncoding::Windows31j);
+    req.kind_column = false;
+    req.line_numbers = false;
+    req.changed_columns = false;
+    req.neutralize = true;
+    let mut out = Vec::new();
+    export_csv(&v, &c, &s, &req, None, &mut out, &CancelToken::new()).unwrap();
+    assert_eq!(out, b"id,v\r\n1,\\100\r\n2,a~b\r\n3,'\x81\x7cHYPERLINK\r\n");
+}
+
+#[test]
 fn export_xlsx_writes_a_workbook_and_respects_limits() {
     let c = cmp("id,v\na,=1+1\nb,old\n", "id,v\nb,new\nc,007\n");
     let v = View::build(&c, None, Order::Aligned, Filter::default(), &CancelToken::new()).unwrap();
@@ -749,7 +784,8 @@ fn export_xlsx_writes_a_workbook_and_respects_limits() {
     let mut req = export_req(CopySide::Both, ExportEncoding::Utf8Bom);
     req.format = ExportFormat::Xlsx;
     let info = vec![("キー".to_string(), "id".to_string())];
-    let n = export_xlsx(&v, &c, &s, &req, None, &info, &path, &CancelToken::new()).unwrap();
+    let out = std::fs::File::create(&path).unwrap();
+    let n = export_xlsx(&v, &c, &s, &req, None, &info, out, &CancelToken::new()).unwrap();
     assert_eq!(n, 3);
     let bytes = std::fs::read(&path).unwrap();
     assert!(bytes.starts_with(b"PK"), "an xlsx file is a zip archive");

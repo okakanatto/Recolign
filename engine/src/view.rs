@@ -679,11 +679,10 @@ impl View {
             .map(|row| {
                 let u = self.unit_at(cmp, row);
                 let unit = cmp.units[u];
-                let diffs = cmp.diff_entries(u);
                 let flag = |pair: Option<u32>| -> u8 {
                     let Some(k) = pair else { return 0 };
-                    match diffs.iter().find(|&&e| e & !IGNORED_BIT == k) {
-                        Some(&e) if e & IGNORED_BIT != 0 => 2,
+                    match cmp.diff_entry(u, k) {
+                        Some(e) if e & IGNORED_BIT != 0 => 2,
                         Some(_) => 1,
                         None => 0,
                     }
@@ -1064,7 +1063,6 @@ pub fn detail(cmp: &Comparison, patterns: Option<&Patterns>, unit: u32) -> Optio
     let u = unit as usize;
     let un = *cmp.units.get(u)?;
     let slots = slots(cmp, Order::Aligned);
-    let diffs = cmp.diff_entries(u);
     let rec = |t: &Table, r: u32, side: Side| -> Option<(Vec<(String, bool)>, RecDetail)> {
         if r == NONE {
             return None;
@@ -1108,8 +1106,8 @@ pub fn detail(cmp: &Comparison, patterns: Option<&Patterns>, unit: u32) -> Optio
                 right: r,
                 left_cut,
                 right_cut,
-                d: s.pair.map_or(0, |k| match diffs.iter().find(|&&e| e & !IGNORED_BIT == k) {
-                    Some(&e) if e & IGNORED_BIT != 0 => 2,
+                d: s.pair.map_or(0, |k| match cmp.diff_entry(u, k) {
+                    Some(e) if e & IGNORED_BIT != 0 => 2,
                     Some(_) => 1,
                     None => 0,
                 }),

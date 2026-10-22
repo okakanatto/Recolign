@@ -126,7 +126,9 @@ impl Service {
                     .unwrap_or_default();
                 if let Some(pk) = files::pair_key(&r.cmp.left.info.path, &r.cmp.right.info.path) {
                     if let Some((other, at)) = index.pairs.get(&pk) {
-                        if other != id && files::file_for(dir, other).exists() {
+                        // An ID from the file, so checked before it names a file.
+                        let is_id = other.len() == 64 && other.bytes().all(|b| b.is_ascii_hexdigit());
+                        if other != id && is_id && files::file_for(dir, other).exists() {
                             load.stale_saved_at = Some(*at);
                         }
                     }

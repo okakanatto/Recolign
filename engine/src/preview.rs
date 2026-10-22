@@ -345,20 +345,17 @@ pub fn preview(path: &Path, options: Option<LoadOptions>, max_rows: usize) -> Re
     });
     let mut table = Table::from_bytes(&name, prefix.clone(), &options);
     // The end of a partial read may fall inside a quoted value with line
-    // breaks: read up to the line where that value starts instead. An
-    // earlier value of the same record may span lines too; then that value
-    // is the open one next time, on an earlier line.
-    let mut last_line = u64::MAX;
+    // breaks: read up to the line where that record starts instead. Once,
+    // at the start of the record: cutting back one value at a time read the
+    // whole prefix again for each value, minutes for a record of many
+    // values with line breaks.
     let mut stray_quote = false;
-    while let Err(LoadError::Csv { kind: CsvErrorKind::UnclosedQuote, line, .. }) = table {
-        let start = line_start(&prefix, line, options.encoding);
-        stray_quote = prefix.len() - start > LONGEST_QUOTED_VALUE;
-        if complete || line <= 1 || line >= last_line || stray_quote {
-            break;
+    if let Err(LoadError::Csv { kind: CsvErrorKind::UnclosedQuote, line, record_line, .. }) = table {
+        stray_quote = prefix.len() - line_start(&prefix, line, options.encoding) > LONGEST_QUOTED_VALUE;
+        if !complete && record_line > 1 && !stray_quote {
+            prefix.truncate(line_start(&prefix, record_line, options.encoding));
+            table = Table::from_bytes(&name, prefix.clone(), &options);
         }
-        prefix.truncate(start);
-        table = Table::from_bytes(&name, prefix.clone(), &options);
-        last_line = line;
     }
     // A quote error in a file nobody set options for yet: if it reads with
     // `"` as an ordinary character, suggest that. (Not for a value cut off
@@ -572,6 +569,22 @@ mod tests {
         }
         let pv = preview(&temp_file("two.csv", &src), None, 5).unwrap();
         assert!(pv.error.is_none(), "{:?}", pv.error);
+    }
+
+    #[test]
+    fn a_partial_read_inside_a_record_of_many_values_with_line_breaks_is_cut_once() {
+        // The read ends inside one record of short values with line breaks:
+        // cutting back one value at a time would read the prefix again
+        // about 200,000 times.
+        let mut src = b"id,memo\n1,a\n2,b\n3,".to_vec();
+        while src.len() <= PREVIEW_BYTES + 100 {
+            src.extend_from_slice(b"\"x\ny\",");
+        }
+        let t0 = std::time::Instant::now();
+        let pv = preview(&temp_file("many.csv", &src), None, 5).unwrap();
+        assert!(t0.elapsed() < std::time::Duration::from_secs(30), "{:?}", t0.elapsed());
+        assert!(pv.error.is_none() && pv.options.quoted, "{:?}", pv.error);
+        assert_eq!(pv.rows, [["1", "a"], ["2", "b"]]);
     }
 
     #[test]

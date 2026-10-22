@@ -70,6 +70,7 @@ fn a_file_that_changes_while_read_is_not_compared() {
             writeln!(f, "{i},value-{i:08}").unwrap();
         }
     }
+    let written = std::fs::metadata(&growing).unwrap().len();
     // Opened before the comparison starts, as by a program that keeps the
     // file open (on Windows the reader then has to allow writing).
     let mut f = std::fs::OpenOptions::new().append(true).open(&growing).unwrap();
@@ -86,6 +87,13 @@ fn a_file_that_changes_while_read_is_not_compared() {
             }
         })
     };
+    // The writer is appending before the reading starts: otherwise a fast
+    // read can end before the writer's thread first runs.
+    let t = std::time::Instant::now();
+    while std::fs::metadata(&growing).unwrap().len() == written {
+        assert!(t.elapsed() < std::time::Duration::from_secs(20), "the writer did not start");
+        std::thread::yield_now();
+    }
     let result = compare(&growing, &ok);
     stop.store(true, Ordering::SeqCst);
     writer.join().unwrap();

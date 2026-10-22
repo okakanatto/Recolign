@@ -6,7 +6,6 @@
 
 use std::fmt;
 use std::io::Write;
-use std::path::Path;
 
 use rust_xlsxwriter::{Color, Format, FormatBorder, IgnoreError, Workbook, XlsxError};
 use serde::Deserialize;
@@ -71,7 +70,8 @@ pub struct ExportRequest {
 
 /// Whether a spreadsheet application could read `v` as a formula: it starts
 /// with `=`, `+`, `-`, `@`, a tab or a carriage return, or their full-width
-/// forms, which Japanese Excel can also take as the start of a formula.
+/// forms, which Japanese Excel can also take as the start of a formula, or
+/// the minus sign `−` (U+2212), which Shift_JIS writes as the full-width `－`.
 /// Spaces before that character are skipped. A number such as `-5` and a lone `-`
 /// or `+` stay as they are: they cannot do anything when read as a formula.
 pub fn formula_like(v: &str) -> bool {
@@ -79,7 +79,7 @@ pub fn formula_like(v: &str) -> bool {
     let mut cs = t.chars();
     match cs.next() {
         Some('=' | '@' | '\t' | '\r' | '\u{FF1D}' | '\u{FF20}') => true,
-        Some('+' | '-' | '\u{FF0B}' | '\u{FF0D}') => {
+        Some('+' | '-' | '\u{FF0B}' | '\u{FF0D}' | '\u{2212}') => {
             let rest = cs.as_str();
             !rest.is_empty() && !(rest.chars().any(digit) && rest.chars().all(|c| digit(c) || matches!(c, '.' | ',')))
         }
@@ -240,7 +240,6 @@ impl<'a> Plan<'a> {
             }
             let u = view.unit_at(cmp, row);
             let unit = cmp.units[u];
-            let diffs = cmp.diff_entries(u);
             cells.clear();
             if req.kind_column {
                 cells.push((kind_label(unit.kind).to_string(), Mark::Meta));
@@ -280,12 +279,8 @@ impl<'a> Plan<'a> {
                         (false, _) => (String::new(), Mark::NoRecord),
                         (true, None) => (String::new(), Mark::NoColumn),
                         (true, Some(c)) => {
-                            let mark = match s
-                                .pair
-                                .filter(|_| marked)
-                                .and_then(|k| diffs.iter().find(|&&e| e & !IGNORED_BIT == k))
-                            {
-                                Some(&e) if e & IGNORED_BIT != 0 => Mark::Ignored,
+                            let mark = match s.pair.filter(|_| marked).and_then(|k| cmp.diff_entry(u, k)) {
+                                Some(e) if e & IGNORED_BIT != 0 => Mark::Ignored,
                                 Some(_) => Mark::Changed,
                                 None => Mark::Same,
                             };
@@ -345,6 +340,9 @@ pub fn export_csv<W: Write>(
         }
         line.push_str("\r\n");
         if req.encoding == ExportEncoding::Windows31j {
+            // ¥ (U+00A5), ‾ (U+203E) and − (U+2212) are written at their
+            // JIS places, which Windows reads as \, ~ and － (older systems
+            // read 0x5C as ¥).
             let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&line);
             if unmappable {
                 let (k, ch) = values
@@ -431,11 +429,11 @@ fn xlsx(e: XlsxError) -> ExportError {
     }
 }
 
-/// Writes rows of `view` to an Excel workbook at `path`: a sheet with the
+/// Writes rows of `view` to `out` as an Excel workbook: a sheet with the
 /// rows (changed values filled yellow and bold, added rows green, deleted
 /// rows red, absent records grey) and a sheet with `info` (the files and
 /// conditions) and the meaning of the colours.
-#[allow(clippy::too_many_arguments)] // mirrors export_csv, plus the conditions sheet and the file path
+#[allow(clippy::too_many_arguments)] // mirrors export_csv, plus the conditions sheet
 pub fn export_xlsx(
     view: &View,
     cmp: &Comparison,
@@ -443,7 +441,7 @@ pub fn export_xlsx(
     req: &ExportRequest,
     extra: Option<&Extra>,
     info: &[(String, String)],
-    path: &Path,
+    out: impl Write + Send,
     cancel: &CancelToken,
 ) -> Result<usize, ExportError> {
     let plan = Plan::new(view, all_slots, req, extra);
@@ -551,6 +549,6 @@ pub fn export_xlsx(
         ws2.write_blank(r, 0, fmt).map_err(xlsx)?;
         ws2.write_string(r, 1, text).map_err(xlsx)?;
     }
-    wb.save(path).map_err(xlsx)?;
+    wb.save_to_writer(out).map_err(xlsx)?;
     Ok(plan.rows())
 }

@@ -55,21 +55,35 @@ pub(crate) fn memory_check(left: &Path, right: &Path) -> Value {
     })
 }
 
-/// Lines in a file of `size` bytes, estimated from its first 4 MB.
+/// Lines in a file of `size` bytes, estimated from 4 MB of it: 8 pieces
+/// spread over the file, not only its start, which can have no line breaks
+/// before a great many short lines.
 fn lines(path: &Path, size: u64) -> u64 {
-    use std::io::Read;
+    use std::io::{Read, Seek, SeekFrom};
+    const PIECES: u64 = 8;
+    const PIECE: u64 = 512 << 10;
     if size == 0 {
         return 0;
     }
-    let mut head = Vec::new();
-    let read = std::fs::File::open(path).and_then(|f| f.take(4 << 20).read_to_end(&mut head));
-    if read.is_err() || head.is_empty() {
+    let Ok(mut file) = std::fs::File::open(path) else { return 0 };
+    let mut sample = Vec::new();
+    for i in 0..PIECES {
+        let at = size.saturating_sub(PIECE) * i / (PIECES - 1);
+        if i > 0 && at < sample.len() as u64 {
+            break; // a small file: read whole by the first piece
+        }
+        let len = if i == 0 && size <= PIECES * PIECE { size } else { PIECE };
+        if file.seek(SeekFrom::Start(at)).and_then(|_| (&mut file).take(len).read_to_end(&mut sample)).is_err() {
+            return 0;
+        }
+    }
+    if sample.is_empty() {
         return 0;
     }
-    let count = |b: u8| head.iter().filter(|&&c| c == b).count() as u64;
+    let count = |b: u8| sample.iter().filter(|&&c| c == b).count() as u64;
     // Files with CR line ends have no LF.
     let n = count(b'\n').max(count(b'\r')).max(1);
-    (n * size).div_ceil(head.len() as u64)
+    (n * size).div_ceil(sample.len() as u64)
 }
 
 /// Watches the memory left while a comparison runs, and cancels it before

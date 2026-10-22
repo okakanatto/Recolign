@@ -58,10 +58,12 @@ pub struct Indexed {
 #[derive(Debug, PartialEq, Eq)]
 pub enum IndexError {
     Cancelled,
+    /// `record_line` is the line where the record with the error starts.
     Csv {
         kind: CsvErrorKind,
         line: u64,
         byte_offset: u64,
+        record_line: u64,
     },
     /// `record_index` is 0-based and counts the header record.
     FieldCount {
@@ -74,6 +76,8 @@ pub enum IndexError {
     RecordTooLarge {
         line: u64,
     },
+    /// The index of the records could not grow.
+    OutOfMemory,
 }
 
 const CHECK_INTERVAL: usize = 4 << 20;
@@ -121,7 +125,8 @@ pub fn index(
                     expected = Some(fields);
                     if records.is_empty() && end > rec_start {
                         let guess = (n - start) / (end - rec_start + 2) + 16;
-                        records.reserve(guess.min(1 << 26));
+                        // Only a guess: when it cannot be had, grow as needed.
+                        records.try_reserve(guess.min(1 << 26)).ok();
                     }
                 }
                 Some(e) if e != fields => {
@@ -134,6 +139,11 @@ pub fn index(
                     });
                 }
                 _ => {}
+            }
+            // A record can be one byte of the file and is 32 in the index:
+            // a failed allocation here would end the process without a word.
+            if records.len() == records.capacity() && records.try_reserve(1).is_err() {
+                return Err(IndexError::OutOfMemory);
             }
             records.push(RecordPos { start: rec_start as u64, end: end as u64, line_start: rec_line, line_end: line });
             fields = 0;
@@ -177,6 +187,7 @@ pub fn index(
                         kind: CsvErrorKind::UnclosedQuote,
                         line: quote_line,
                         byte_offset: quote_pos as u64,
+                        record_line: rec_line,
                     });
                 };
                 let j = i + off;
@@ -213,7 +224,12 @@ pub fn index(
             } else if c == b'\r' || c == b'\n' {
                 i = end_record!(i);
             } else {
-                return Err(IndexError::Csv { kind: CsvErrorKind::TextAfterClosingQuote, line, byte_offset: i as u64 });
+                return Err(IndexError::Csv {
+                    kind: CsvErrorKind::TextAfterClosingQuote,
+                    line,
+                    byte_offset: i as u64,
+                    record_line: rec_line,
+                });
             }
         } else {
             let j = match bytes[i..].iter().position(|&c| stop[c as usize]) {
@@ -231,7 +247,12 @@ pub fn index(
                     i = end_record!(n);
                 }
             } else if c == b'"' {
-                return Err(IndexError::Csv { kind: CsvErrorKind::QuoteInUnquotedField, line, byte_offset: j as u64 });
+                return Err(IndexError::Csv {
+                    kind: CsvErrorKind::QuoteInUnquotedField,
+                    line,
+                    byte_offset: j as u64,
+                    record_line: rec_line,
+                });
             } else {
                 i = end_record!(j);
             }
@@ -396,14 +417,17 @@ mod tests {
 
     #[test]
     fn strict_errors() {
-        assert_eq!(err("a,\"x\n"), IndexError::Csv { kind: CsvErrorKind::UnclosedQuote, line: 1, byte_offset: 2 });
+        assert_eq!(
+            err("a,\"x\n"),
+            IndexError::Csv { kind: CsvErrorKind::UnclosedQuote, line: 1, byte_offset: 2, record_line: 1 }
+        );
         assert_eq!(
             err("a,x\"q\n"),
-            IndexError::Csv { kind: CsvErrorKind::QuoteInUnquotedField, line: 1, byte_offset: 3 }
+            IndexError::Csv { kind: CsvErrorKind::QuoteInUnquotedField, line: 1, byte_offset: 3, record_line: 1 }
         );
         assert_eq!(
             err("a,\"x\" y\n"),
-            IndexError::Csv { kind: CsvErrorKind::TextAfterClosingQuote, line: 1, byte_offset: 5 }
+            IndexError::Csv { kind: CsvErrorKind::TextAfterClosingQuote, line: 1, byte_offset: 5, record_line: 1 }
         );
         assert_eq!(
             err("a,b\nc\n"),
@@ -427,7 +451,7 @@ mod tests {
     fn error_line_counts_quoted_newlines() {
         assert_eq!(
             err("h,v\na,\"1\n2\"\nb,x\"\n"),
-            IndexError::Csv { kind: CsvErrorKind::QuoteInUnquotedField, line: 4, byte_offset: 15 }
+            IndexError::Csv { kind: CsvErrorKind::QuoteInUnquotedField, line: 4, byte_offset: 15, record_line: 4 }
         );
     }
 
