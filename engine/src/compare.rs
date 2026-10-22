@@ -21,6 +21,7 @@ use crate::encoding::TextEncoding;
 use crate::error::{CompareError, DuplicateGroup, KeyProblems, KeyValidationReport, RecordRef};
 use crate::table::Table;
 use crate::tokenizer::FieldSpan;
+use crate::view::DETAIL_KEY_CHARS;
 
 pub const NONE: u32 = u32::MAX;
 /// Set on a diff entry whose difference is ignored by the comparison rules.
@@ -199,7 +200,18 @@ impl KeyIndex {
             for first in firsts.into_iter().take(LIST_CAP_GROUPS) {
                 let mut spans = Vec::new();
                 table.split(first as usize, limit, &mut spans);
-                let key = cols.iter().map(|&c| table.value(first as usize, spans[c]).into_owned()).collect();
+                // A long key value is cut and ends in …, as in a record's
+                // detail: the report goes to the screen whole.
+                let key = cols
+                    .iter()
+                    .map(|&c| {
+                        let v = table.value(first as usize, spans[c]);
+                        match v.char_indices().nth(DETAIL_KEY_CHARS) {
+                            Some((i, _)) => format!("{}…", &v[..i]),
+                            None => v.into_owned(),
+                        }
+                    })
+                    .collect();
                 let mut records = vec![record_ref(table, first as usize)];
                 records.extend(dups[&first].iter().take(LIST_CAP_RECORDS - 1).map(|&r| record_ref(table, r as usize)));
                 problems.duplicate_groups.push(DuplicateGroup { key, records });
@@ -517,6 +529,13 @@ impl Comparison {
     /// Raw diff entries of unit `u` (pair index, possibly with `IGNORED_BIT`).
     pub fn diff_entries(&self, u: usize) -> &[u32] {
         &self.diff_entries[self.diff_offsets[u] as usize..self.diff_offsets[u + 1] as usize]
+    }
+
+    /// The diff entry of pair `k` of unit `u`, if its values differ.
+    pub fn diff_entry(&self, u: usize, k: u32) -> Option<u32> {
+        // The entries are in pair order.
+        let d = self.diff_entries(u);
+        d.binary_search_by_key(&k, |&e| e & !IGNORED_BIT).ok().map(|i| d[i])
     }
 
     /// Pair indices whose values changed.

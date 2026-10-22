@@ -6,7 +6,6 @@
 
 use std::fmt;
 use std::io::Write;
-use std::path::Path;
 
 use rust_xlsxwriter::{Color, Format, FormatBorder, IgnoreError, Workbook, XlsxError};
 use serde::Deserialize;
@@ -240,7 +239,6 @@ impl<'a> Plan<'a> {
             }
             let u = view.unit_at(cmp, row);
             let unit = cmp.units[u];
-            let diffs = cmp.diff_entries(u);
             cells.clear();
             if req.kind_column {
                 cells.push((kind_label(unit.kind).to_string(), Mark::Meta));
@@ -280,12 +278,8 @@ impl<'a> Plan<'a> {
                         (false, _) => (String::new(), Mark::NoRecord),
                         (true, None) => (String::new(), Mark::NoColumn),
                         (true, Some(c)) => {
-                            let mark = match s
-                                .pair
-                                .filter(|_| marked)
-                                .and_then(|k| diffs.iter().find(|&&e| e & !IGNORED_BIT == k))
-                            {
-                                Some(&e) if e & IGNORED_BIT != 0 => Mark::Ignored,
+                            let mark = match s.pair.filter(|_| marked).and_then(|k| cmp.diff_entry(u, k)) {
+                                Some(e) if e & IGNORED_BIT != 0 => Mark::Ignored,
                                 Some(_) => Mark::Changed,
                                 None => Mark::Same,
                             };
@@ -327,41 +321,45 @@ pub fn export_csv<W: Write>(
         w.write_all(b"\xEF\xBB\xBF")?;
     }
     let mut line = String::new();
-    let mut write_line = |line_no: usize,
-                          cells: &mut dyn Iterator<Item = &str>,
-                          w: &mut W|
-     -> Result<(), ExportError> {
-        line.clear();
-        let values: Vec<&str> = cells.collect();
-        for (i, v) in values.iter().enumerate() {
-            if i > 0 {
-                line.push(',');
+    let mut write_line =
+        |line_no: usize, cells: &mut dyn Iterator<Item = &str>, w: &mut W| -> Result<(), ExportError> {
+            line.clear();
+            let values: Vec<&str> = cells.collect();
+            for (i, v) in values.iter().enumerate() {
+                if i > 0 {
+                    line.push(',');
+                }
+                if req.neutralize && formula_like(v) {
+                    csv_cell(&mut line, &format!("'{v}"));
+                } else {
+                    csv_cell(&mut line, v);
+                }
             }
-            if req.neutralize && formula_like(v) {
-                csv_cell(&mut line, &format!("'{v}"));
+            line.push_str("\r\n");
+            if req.encoding == ExportEncoding::Windows31j {
+                let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&line);
+                // The encoder also writes ¥ (U+00A5), ‾ (U+203E) and − (U+2212)
+                // as the bytes of \, ~ and －, which read back as those: they are
+                // not representable either.
+                if unmappable || encoding_rs::SHIFT_JIS.decode_without_bom_handling(&bytes).0 != line {
+                    let changes = |c: char| {
+                        let s = c.to_string();
+                        let (b, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&s);
+                        unmappable || encoding_rs::SHIFT_JIS.decode_without_bom_handling(&b).0 != s
+                    };
+                    let (k, ch) = values
+                        .iter()
+                        .enumerate()
+                        .find_map(|(k, v)| v.chars().find(|&c| changes(c)).map(|c| (k, c)))
+                        .unwrap_or((0, '\u{FFFD}'));
+                    return Err(ExportError::Unrepresentable { line: line_no, column: plan.header[k].clone(), ch });
+                }
+                w.write_all(&bytes)?;
             } else {
-                csv_cell(&mut line, v);
+                w.write_all(line.as_bytes())?;
             }
-        }
-        line.push_str("\r\n");
-        if req.encoding == ExportEncoding::Windows31j {
-            let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&line);
-            if unmappable {
-                let (k, ch) = values
-                    .iter()
-                    .enumerate()
-                    .find_map(|(k, v)| {
-                        v.chars().find(|c| encoding_rs::SHIFT_JIS.encode(c.encode_utf8(&mut [0; 4])).2).map(|c| (k, c))
-                    })
-                    .unwrap_or((0, '\u{FFFD}'));
-                return Err(ExportError::Unrepresentable { line: line_no, column: plan.header[k].clone(), ch });
-            }
-            w.write_all(&bytes)?;
-        } else {
-            w.write_all(line.as_bytes())?;
-        }
-        Ok(())
-    };
+            Ok(())
+        };
     write_line(1, &mut plan.header.iter().map(String::as_str), w)?;
     plan.each_row(view, cmp, req, extra, cancel, |i, _, cells| {
         write_line(i + 2, &mut cells.iter().map(|(v, _)| v.as_str()), w)
@@ -431,11 +429,11 @@ fn xlsx(e: XlsxError) -> ExportError {
     }
 }
 
-/// Writes rows of `view` to an Excel workbook at `path`: a sheet with the
+/// Writes rows of `view` to `out` as an Excel workbook: a sheet with the
 /// rows (changed values filled yellow and bold, added rows green, deleted
 /// rows red, absent records grey) and a sheet with `info` (the files and
 /// conditions) and the meaning of the colours.
-#[allow(clippy::too_many_arguments)] // mirrors export_csv, plus the conditions sheet and the file path
+#[allow(clippy::too_many_arguments)] // mirrors export_csv, plus the conditions sheet
 pub fn export_xlsx(
     view: &View,
     cmp: &Comparison,
@@ -443,7 +441,7 @@ pub fn export_xlsx(
     req: &ExportRequest,
     extra: Option<&Extra>,
     info: &[(String, String)],
-    path: &Path,
+    out: impl Write + Send,
     cancel: &CancelToken,
 ) -> Result<usize, ExportError> {
     let plan = Plan::new(view, all_slots, req, extra);
@@ -551,6 +549,6 @@ pub fn export_xlsx(
         ws2.write_blank(r, 0, fmt).map_err(xlsx)?;
         ws2.write_string(r, 1, text).map_err(xlsx)?;
     }
-    wb.save(path).map_err(xlsx)?;
+    wb.save_to_writer(out).map_err(xlsx)?;
     Ok(plan.rows())
 }

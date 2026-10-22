@@ -71,6 +71,8 @@ pub enum FixedError {
     LineTooLarge {
         line: u64,
     },
+    /// The index of the records could not grow.
+    OutOfMemory,
 }
 
 /// Length of the character starting at `rec[i]` in a validated file.
@@ -231,6 +233,9 @@ pub fn index(
             return Err(FixedError::LineTooLarge { line });
         }
         check_line(&bytes[i..end], layout, enc, line)?;
+        if records.len() == records.capacity() && records.try_reserve(1).is_err() {
+            return Err(FixedError::OutOfMemory);
+        }
         records.push(RecordPos { start: i as u64, end: end as u64, line_start: line, line_end: line });
         i = if end >= n {
             le.unterminated_last = true;

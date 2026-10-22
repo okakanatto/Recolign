@@ -366,6 +366,15 @@ fn memory_check_estimates_from_file_sizes() {
     assert!(needed >= 2 * 200_000 * 90 + (64 << 20), "{m}");
     assert!(needed <= 2 * 200_000 * 100 + 2 * text.len() as u64 * 2 + (64 << 20), "{m}");
 
+    // A long first line, then many empty lines: the lines are counted
+    // over the whole file, not only in its first megabytes.
+    let late = dir.join("late.csv");
+    let mut bytes = vec![b'x'; 5 << 20];
+    bytes.extend(std::iter::repeat_n(b'\n', 4 << 20));
+    std::fs::write(&late, &bytes).unwrap();
+    let m = ok(&s, "memory_check", json!({ "left": late, "right": short }));
+    assert!(m["needed_bytes"].as_u64().unwrap() >= (4 << 20) * 96 / 2, "{m}");
+
     // A folder is not read, and no estimate comes from it.
     let m = ok(&s, "memory_check", json!({ "left": dir, "right": short }));
     assert_eq!(m["input_bytes"].as_u64(), Some(text.len() as u64));
@@ -533,6 +542,33 @@ fn failed_exports_leave_the_destination_as_it_was() {
         )
         .unwrap_err();
     assert!(err.body["error"].as_str().unwrap().contains("書き出せませんでした"), "{}", err.body);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The temporary file of an export is always a new file: a compared file
+/// (or any other file) with the name `<destination>.part` is not written.
+#[test]
+fn an_export_never_writes_a_file_that_has_its_temporary_name() {
+    let dir = std::env::temp_dir().join(format!("cdr-export-part-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let (l, r) = (dir.join("out.csv.part"), dir.join("r.csv"));
+    std::fs::write(&l, "id,v\n1,a\n2,b\n").unwrap();
+    std::fs::write(&r, "id,v\n1,a\n2,c\n").unwrap();
+    std::fs::write(dir.join("out.csv.1.part"), "another file\n").unwrap();
+    let side = |p: &std::path::Path| json!({ "path": p, "options": { "encoding": "utf8", "delimiter": 44, "has_header": true } });
+    let s = Arc::new(Service::new());
+    ok(&s, "compare", json!({ "left": side(&l), "right": side(&r), "keys": ["id"] }));
+    wait_ready(&s);
+    let v = ok(&s, "view", json!({ "order": "aligned" }));
+    for format in ["csv", "xlsx"] {
+        let out = dir.join("out.csv");
+        ok(&s, "export", json!({ "view": v["view"], "path": out, "slots": [0, 1], "side": "both", "format": format }));
+        assert!(std::fs::metadata(&out).unwrap().len() > 0, "{format}");
+        assert_eq!(std::fs::read_to_string(&l).unwrap(), "id,v\n1,a\n2,b\n", "{format}: the compared file is kept");
+        assert_eq!(std::fs::read_to_string(dir.join("out.csv.1.part")).unwrap(), "another file\n", "{format}");
+        assert!(!dir.join("out.csv.2.part").exists(), "{format}: the temporary file is renamed");
+    }
     std::fs::remove_dir_all(&dir).ok();
 }
 

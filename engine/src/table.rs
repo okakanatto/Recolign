@@ -369,9 +369,13 @@ impl Table {
             Layout::Delimited { delimiter, quoted } => tokenizer::index(b, start, *delimiter, *quoted, on_progress)
                 .map_err(|e| match e {
                     IndexError::Cancelled => LoadError::Cancelled,
-                    IndexError::Csv { kind, line, byte_offset } => {
-                        LoadError::Csv { name: name.clone(), kind, line, byte_offset: file_offset(byte_offset) }
-                    }
+                    IndexError::Csv { kind, line, byte_offset, record_line } => LoadError::Csv {
+                        name: name.clone(),
+                        kind,
+                        line,
+                        byte_offset: file_offset(byte_offset),
+                        record_line,
+                    },
                     IndexError::FieldCount { record_index, line, found, expected, blank } => LoadError::FieldCount {
                         name: name.clone(),
                         line,
@@ -383,6 +387,9 @@ impl Table {
                     IndexError::RecordTooLarge { .. } => {
                         LoadError::TooLarge { name: name.clone(), what: "1レコードの長さ" }
                     }
+                    IndexError::OutOfMemory => {
+                        LoadError::TooLarge { name: name.clone(), what: "レコードの数（メモリ不足）" }
+                    }
                 }),
             Layout::Fixed(f) => fixed::index(b, start, f, text_encoding, on_progress).map_err(|e| match e {
                 FixedError::Cancelled => LoadError::Cancelled,
@@ -393,6 +400,9 @@ impl Table {
                     LoadError::FixedSplitsCharacter { name: name.clone(), line, column }
                 }
                 FixedError::LineTooLarge { .. } => LoadError::TooLarge { name: name.clone(), what: "1行の長さ" },
+                FixedError::OutOfMemory => {
+                    LoadError::TooLarge { name: name.clone(), what: "行の数（メモリ不足）" }
+                }
             }),
         };
         timings.index = t.elapsed();

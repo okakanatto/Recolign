@@ -118,6 +118,22 @@ fn p11_duplicate_key_on_one_side_stops() {
 }
 
 #[test]
+fn a_long_duplicate_key_is_cut_in_the_report() {
+    let long = "鍵".repeat(5_000);
+    let e =
+        cmp_with(&format!("id,v\n{long},x\n{long},y\n"), "id,v\na,z\n", &["id"], &[], TrimRule::None).err().unwrap();
+    match &e {
+        CompareError::KeyValidation(r) => {
+            let key = &r.left.duplicate_groups[0].key[0];
+            assert_eq!(key.chars().count(), cdr_engine::view::DETAIL_KEY_CHARS + 1);
+            assert!(key.ends_with("鍵…"));
+        }
+        other => panic!("{other}"),
+    }
+    assert!(e.to_string().len() < 10_000);
+}
+
+#[test]
 fn p12_empty_key_stops() {
     let e = cmp_with("id,v\n,x\n", "id,v\na,z\n", &["id"], &[], TrimRule::None).err().unwrap();
     assert!(matches!(&e, CompareError::KeyValidation(r) if r.left.empty_total == 1));
@@ -739,6 +755,24 @@ fn export_csv_in_windows31j_and_unrepresentable_characters() {
 }
 
 #[test]
+fn export_csv_in_windows31j_stops_at_characters_that_would_read_back_as_others() {
+    // The Shift_JIS encoder writes these as the bytes of \, ~ and －: the
+    // file would read back with other characters, so the export stops.
+    for (value, ch) in [("¥100", '¥'), ("a‾b", '‾'), ("−HYPERLINK", '−')] {
+        let c = cmp(&format!("id,v\n1,{value}\n"), &format!("id,v\n1,{value}\n"));
+        let v = View::build(&c, None, Order::Aligned, Filter::default(), &CancelToken::new()).unwrap();
+        let s = slots(&c, Order::Aligned);
+        let req = export_req(CopySide::Left, ExportEncoding::Windows31j);
+        match export_csv(&v, &c, &s, &req, None, &mut Vec::new(), &CancelToken::new()).unwrap_err() {
+            ExportError::Unrepresentable { line, column, ch: found } => {
+                assert_eq!((line, column.as_str(), found), (2, "v", ch))
+            }
+            e => panic!("{e}"),
+        }
+    }
+}
+
+#[test]
 fn export_xlsx_writes_a_workbook_and_respects_limits() {
     let c = cmp("id,v\na,=1+1\nb,old\n", "id,v\nb,new\nc,007\n");
     let v = View::build(&c, None, Order::Aligned, Filter::default(), &CancelToken::new()).unwrap();
@@ -749,7 +783,8 @@ fn export_xlsx_writes_a_workbook_and_respects_limits() {
     let mut req = export_req(CopySide::Both, ExportEncoding::Utf8Bom);
     req.format = ExportFormat::Xlsx;
     let info = vec![("キー".to_string(), "id".to_string())];
-    let n = export_xlsx(&v, &c, &s, &req, None, &info, &path, &CancelToken::new()).unwrap();
+    let out = std::fs::File::create(&path).unwrap();
+    let n = export_xlsx(&v, &c, &s, &req, None, &info, out, &CancelToken::new()).unwrap();
     assert_eq!(n, 3);
     let bytes = std::fs::read(&path).unwrap();
     assert!(bytes.starts_with(b"PK"), "an xlsx file is a zip archive");

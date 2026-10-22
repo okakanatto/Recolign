@@ -68,11 +68,13 @@ pub enum LoadError {
         byte_offset: u64,
         hint: Option<&'static str>,
     },
+    /// `record_line` is the line where the record with the error starts.
     Csv {
         name: String,
         kind: CsvErrorKind,
         line: u64,
         byte_offset: u64,
+        record_line: u64,
     },
     FieldCount {
         name: String,
@@ -179,7 +181,7 @@ impl fmt::Display for LoadError {
                 }
                 Ok(())
             }
-            LoadError::Csv { name, kind, line, byte_offset } => match kind {
+            LoadError::Csv { name, kind, line, byte_offset, .. } => match kind {
                 CsvErrorKind::UnclosedQuote => write!(
                     f,
                     "{name}: {line}行目で始まる引用符「\"」が、ファイル末尾まで閉じていません。出力元のCSVを確認してください。{NO_QUOTES}"

@@ -1,7 +1,9 @@
 //! Writing rows of a view to a CSV or Excel file.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::fs::{File, OpenOptions};
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 
 use cdr_engine::export::{export_csv, export_xlsx, kind_label, ExportError, ExportFormat, ExportRequest, Extra};
 use cdr_engine::view::View;
@@ -99,6 +101,23 @@ fn export_info(r: &Ready, view: &View, req: &ExportRequest, extra: &[(String, St
     v
 }
 
+/// A new, empty file next to `path` to write the export into, under a name
+/// no file has: never an existing file (one of the compared files, or a link
+/// to one, could have the name `<name>.part`).
+fn create_temp(path: &Path) -> std::io::Result<(PathBuf, File)> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut taken = None;
+    for i in 0..100 {
+        let tmp = path.with_file_name(if i == 0 { format!("{name}.part") } else { format!("{name}.{i}.part") });
+        match OpenOptions::new().write(true).create_new(true).open(&tmp) {
+            Ok(file) => return Ok((tmp, file)),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => taken = Some(e),
+            Err(e) => return Err(e),
+        }
+    }
+    Err(taken.unwrap_or_else(|| ErrorKind::AlreadyExists.into()))
+}
+
 impl Service {
     /// Writes rows of a view to a CSV or Excel file. The file is written
     /// under a temporary name and renamed when complete; the compared files
@@ -117,8 +136,8 @@ impl Service {
                 }
             }
         }
-        let name = q.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let tmp = q.path.with_file_name(format!("{name}.part"));
+        let (tmp, file) = create_temp(&q.path)
+            .map_err(|e| bad(format!("「{shown}」に書き出せませんでした（{e}）。保存先を変えてください。")))?;
         let slots = &r.slots[order_key(view.order)];
         let cancel = CancelToken::new();
         // A copy of the review states, so the export does not hold the lock.
@@ -137,12 +156,13 @@ impl Service {
         let extra = Extra { names: vec!["確認状況".into(), "メモ".into()], values: &review_values };
         let extra = q.review.then_some(&extra);
         let written = match q.export.format {
-            ExportFormat::Csv => std::fs::File::create(&tmp).map_err(ExportError::Io).and_then(|file| {
+            ExportFormat::Csv => {
                 let mut w = std::io::BufWriter::with_capacity(1 << 20, file);
-                let n = export_csv(&view, &r.cmp, slots, &q.export, extra, &mut w, &cancel)?;
-                w.into_inner().map_err(|e| e.into_error())?.sync_all()?;
-                Ok(n)
-            }),
+                export_csv(&view, &r.cmp, slots, &q.export, extra, &mut w, &cancel).and_then(|n| {
+                    w.into_inner().map_err(|e| e.into_error())?.sync_all()?;
+                    Ok(n)
+                })
+            }
             ExportFormat::Xlsx => {
                 let mut info = export_info(&r, &view, &q.export, &q.info);
                 if q.review {
@@ -155,7 +175,11 @@ impl Service {
                         ),
                     ));
                 }
-                export_xlsx(&view, &r.cmp, slots, &q.export, extra, &info, &tmp, &cancel)
+                // The file is closed before the rename, either way.
+                export_xlsx(&view, &r.cmp, slots, &q.export, extra, &info, &file, &cancel).and_then(move |n| {
+                    file.sync_all()?;
+                    Ok(n)
+                })
             }
         };
         let rows = match written {
