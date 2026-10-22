@@ -133,8 +133,8 @@ fn settings_files(app: &AppHandle) -> Vec<PathBuf> {
 ///   drive does not carry or mix one person's file and column names;
 /// - the settings that protect the data, so a shared copy cannot turn them
 ///   off for the next person. The second value is the one that protects:
-///   from a preferences file (where earlier versions saved them), only that
-///   value is taken.
+///   from a preferences file, only that value is taken, except once from a
+///   profile of an earlier version (which saved them there).
 const PRIVATE_KEYS: [(&str, Option<bool>); 5] = [
     ("/recent", None),
     ("/groupSkip", None),
@@ -174,13 +174,16 @@ fn put(v: &mut Value, key: &str, value: Value) {
 /// The preferences, with the private settings from the user's profile:
 /// names in a preferences file are never used, so a planted recent
 /// comparison cannot lead to a file on another computer, and a protecting
-/// setting turned off there stays on.
+/// setting turned off there stays on for someone new to this copy.
 #[tauri::command]
 fn load_settings(app: AppHandle) -> Option<Value> {
     let mut s = settings_files(&app).iter().find_map(|p| read_json(p)).unwrap_or_else(|| json!({}));
     let h = history_file(&app).and_then(|p| read_json(&p));
+    // A profile of an earlier version has none of the protecting settings:
+    // its user had them in the preferences file, and keeps them as they were.
+    let earlier = h.as_ref().is_some_and(|h| PRIVATE_KEYS.iter().all(|(k, p)| p.is_none() || h.pointer(k).is_none()));
     for (k, protects) in PRIVATE_KEYS {
-        let shared = take(&mut s, k).filter(|v| protects.is_some_and(|b| *v == Value::Bool(b)));
+        let shared = take(&mut s, k).filter(|v| protects.is_some_and(|b| earlier || *v == Value::Bool(b)));
         if let Some(v) = h.as_ref().and_then(|h| h.pointer(k)).cloned().or(shared) {
             put(&mut s, k, v);
         }

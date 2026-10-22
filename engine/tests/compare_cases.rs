@@ -696,11 +696,12 @@ fn formula_like_values_include_full_width_forms_and_leave_numbers() {
         "\u{FF20}x",
         "\u{FF0B}1+1",
         "\u{FF0D}x",
+        "\u{2212}HYPERLINK(\"x\")",
         "=",
     ] {
         assert!(formula_like(v), "{v:?}");
     }
-    for v in ["", "a=b", "-5", "+5", "-1,000.5", "\u{FF0D}\u{FF11}\u{FF10}", "-", "+", "\u{FF0D}", "x@y"] {
+    for v in ["", "a=b", "-5", "+5", "-1,000.5", "\u{FF0D}\u{FF11}\u{FF10}", "\u{2212}5", "-", "+", "\u{FF0D}", "x@y"] {
         assert!(!formula_like(v), "{v:?}");
     }
 }
@@ -755,21 +756,21 @@ fn export_csv_in_windows31j_and_unrepresentable_characters() {
 }
 
 #[test]
-fn export_csv_in_windows31j_stops_at_characters_that_would_read_back_as_others() {
-    // The Shift_JIS encoder writes these as the bytes of \, ~ and －: the
-    // file would read back with other characters, so the export stops.
-    for (value, ch) in [("¥100", '¥'), ("a‾b", '‾'), ("−HYPERLINK", '−')] {
-        let c = cmp(&format!("id,v\n1,{value}\n"), &format!("id,v\n1,{value}\n"));
-        let v = View::build(&c, None, Order::Aligned, Filter::default(), &CancelToken::new()).unwrap();
-        let s = slots(&c, Order::Aligned);
-        let req = export_req(CopySide::Left, ExportEncoding::Windows31j);
-        match export_csv(&v, &c, &s, &req, None, &mut Vec::new(), &CancelToken::new()).unwrap_err() {
-            ExportError::Unrepresentable { line, column, ch: found } => {
-                assert_eq!((line, column.as_str(), found), (2, "v", ch))
-            }
-            e => panic!("{e}"),
-        }
-    }
+fn export_csv_in_windows31j_writes_yen_overline_and_minus_at_their_jis_places() {
+    // As in 1.0.0: ¥, ‾ and − go to 0x5C, 0x7E and 0x817C (Windows reads
+    // \, ~ and －). A value that starts with − gets the formula guard,
+    // because in Shift_JIS it starts with the full-width －.
+    let c = cmp("id,v\n1,¥100\n2,a‾b\n3,−HYPERLINK\n", "id,v\n1,¥100\n2,a‾b\n3,−HYPERLINK\n");
+    let v = View::build(&c, None, Order::Aligned, Filter::default(), &CancelToken::new()).unwrap();
+    let s = slots(&c, Order::Aligned);
+    let mut req = export_req(CopySide::Left, ExportEncoding::Windows31j);
+    req.kind_column = false;
+    req.line_numbers = false;
+    req.changed_columns = false;
+    req.neutralize = true;
+    let mut out = Vec::new();
+    export_csv(&v, &c, &s, &req, None, &mut out, &CancelToken::new()).unwrap();
+    assert_eq!(out, b"id,v\r\n1,\\100\r\n2,a~b\r\n3,'\x81\x7cHYPERLINK\r\n");
 }
 
 #[test]

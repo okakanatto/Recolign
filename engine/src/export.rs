@@ -70,7 +70,8 @@ pub struct ExportRequest {
 
 /// Whether a spreadsheet application could read `v` as a formula: it starts
 /// with `=`, `+`, `-`, `@`, a tab or a carriage return, or their full-width
-/// forms, which Japanese Excel can also take as the start of a formula.
+/// forms, which Japanese Excel can also take as the start of a formula, or
+/// the minus sign `−` (U+2212), which Shift_JIS writes as the full-width `－`.
 /// Spaces before that character are skipped. A number such as `-5` and a lone `-`
 /// or `+` stay as they are: they cannot do anything when read as a formula.
 pub fn formula_like(v: &str) -> bool {
@@ -78,7 +79,7 @@ pub fn formula_like(v: &str) -> bool {
     let mut cs = t.chars();
     match cs.next() {
         Some('=' | '@' | '\t' | '\r' | '\u{FF1D}' | '\u{FF20}') => true,
-        Some('+' | '-' | '\u{FF0B}' | '\u{FF0D}') => {
+        Some('+' | '-' | '\u{FF0B}' | '\u{FF0D}' | '\u{2212}') => {
             let rest = cs.as_str();
             !rest.is_empty() && !(rest.chars().any(digit) && rest.chars().all(|c| digit(c) || matches!(c, '.' | ',')))
         }
@@ -321,45 +322,44 @@ pub fn export_csv<W: Write>(
         w.write_all(b"\xEF\xBB\xBF")?;
     }
     let mut line = String::new();
-    let mut write_line =
-        |line_no: usize, cells: &mut dyn Iterator<Item = &str>, w: &mut W| -> Result<(), ExportError> {
-            line.clear();
-            let values: Vec<&str> = cells.collect();
-            for (i, v) in values.iter().enumerate() {
-                if i > 0 {
-                    line.push(',');
-                }
-                if req.neutralize && formula_like(v) {
-                    csv_cell(&mut line, &format!("'{v}"));
-                } else {
-                    csv_cell(&mut line, v);
-                }
+    let mut write_line = |line_no: usize,
+                          cells: &mut dyn Iterator<Item = &str>,
+                          w: &mut W|
+     -> Result<(), ExportError> {
+        line.clear();
+        let values: Vec<&str> = cells.collect();
+        for (i, v) in values.iter().enumerate() {
+            if i > 0 {
+                line.push(',');
             }
-            line.push_str("\r\n");
-            if req.encoding == ExportEncoding::Windows31j {
-                let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&line);
-                // The encoder also writes ¥ (U+00A5), ‾ (U+203E) and − (U+2212)
-                // as the bytes of \, ~ and －, which read back as those: they are
-                // not representable either.
-                if unmappable || encoding_rs::SHIFT_JIS.decode_without_bom_handling(&bytes).0 != line {
-                    let changes = |c: char| {
-                        let s = c.to_string();
-                        let (b, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&s);
-                        unmappable || encoding_rs::SHIFT_JIS.decode_without_bom_handling(&b).0 != s
-                    };
-                    let (k, ch) = values
-                        .iter()
-                        .enumerate()
-                        .find_map(|(k, v)| v.chars().find(|&c| changes(c)).map(|c| (k, c)))
-                        .unwrap_or((0, '\u{FFFD}'));
-                    return Err(ExportError::Unrepresentable { line: line_no, column: plan.header[k].clone(), ch });
-                }
-                w.write_all(&bytes)?;
+            if req.neutralize && formula_like(v) {
+                csv_cell(&mut line, &format!("'{v}"));
             } else {
-                w.write_all(line.as_bytes())?;
+                csv_cell(&mut line, v);
             }
-            Ok(())
-        };
+        }
+        line.push_str("\r\n");
+        if req.encoding == ExportEncoding::Windows31j {
+            // ¥ (U+00A5), ‾ (U+203E) and − (U+2212) are written at their
+            // JIS places, which Windows reads as \, ~ and － (older systems
+            // read 0x5C as ¥).
+            let (bytes, _, unmappable) = encoding_rs::SHIFT_JIS.encode(&line);
+            if unmappable {
+                let (k, ch) = values
+                    .iter()
+                    .enumerate()
+                    .find_map(|(k, v)| {
+                        v.chars().find(|c| encoding_rs::SHIFT_JIS.encode(c.encode_utf8(&mut [0; 4])).2).map(|c| (k, c))
+                    })
+                    .unwrap_or((0, '\u{FFFD}'));
+                return Err(ExportError::Unrepresentable { line: line_no, column: plan.header[k].clone(), ch });
+            }
+            w.write_all(&bytes)?;
+        } else {
+            w.write_all(line.as_bytes())?;
+        }
+        Ok(())
+    };
     write_line(1, &mut plan.header.iter().map(String::as_str), w)?;
     plan.each_row(view, cmp, req, extra, cancel, |i, _, cells| {
         write_line(i + 2, &mut cells.iter().map(|(v, _)| v.as_str()), w)
